@@ -5,14 +5,17 @@ REM  Author: Ahmed Ellamie <ahmed.ellamiee@gmail.com>
 REM ===========================================================
 setlocal
 
+pushd "%~dp0"
 set SRC=main.c src\house.c src\render.c src\ui.c src\platform.c src\demo.c
 
-gcc -std=c99 -Wall -Wextra -Iinclude -o house.exe %SRC%
+gcc -std=c99 -Wall -Wextra -Iinclude -o "house.exe" %SRC%
 if errorlevel 1 goto fail
 
 echo Build OK.  Run:  house.exe
+popd
 goto :eof
 
 :fail
 echo BUILD FAILED - check the errors above.
+popd
 exit /b 1

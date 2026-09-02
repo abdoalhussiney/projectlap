@@ -28,6 +28,8 @@
  * Smart Home Console · Day 03 midterm — G9
  * Student: <YOUR NAME HERE>
  */
+#include <string.h>
+
 #include "house.h"
 
 /* ---------------- module-private data (NFR-03) ---------------
@@ -79,9 +81,18 @@ void houseInit(void)
     static const uint8_t  SEED_OCC[ROOM_COUNT] = { 1U, 0U, 0U, 0U, 1U, 0U };
 
     /* TODO: the loop described above. */
-    (void)NAMES; (void)SEED_ADC; (void)SEED_OCC;   /* delete these */
-}
+    for (uint8_t i = 0U; i < ROOM_COUNT; i++) {
+        strncpy(house[i].name, NAMES[i], NAME_LEN - 1);
+        house[i].name[NAME_LEN - 1] = '\0';
+        house[i].adc = SEED_ADC[i];
+        house[i].status = 0;
 
+        SET_BIT(house[i].status, BIT_AUTO);
+        if (SEED_OCC[i]) {
+            SET_BIT(house[i].status, BIT_OCCUPIED);
+        }
+    }
+}
 
 /* ==========================================================================
  *  [ 2 / 6 ]   YOUR WORK HERE  —  tempC()                            FR-05
@@ -109,8 +120,7 @@ void houseInit(void)
  */
 uint16_t tempC(uint16_t adc)
 {
-    (void)adc;      /* delete this line */
-    return 0U;      /* TODO */
+    return (uint16_t)(((uint32_t)adc * 500U) / 1024U);
 }
 
 
@@ -179,7 +189,13 @@ uint8_t applyRules(Room_t *r)
  */
 uint8_t rulesPass(void)
 {
-    return 0U;      /* TODO */
+    uint8_t changed = 0;
+    for (uint8_t i = 0; i < ROOM_COUNT; i++) {
+        if (applyRules(&house[i])) {
+            changed = 1;
+        }
+    }
+    return changed;
 }
 
 
@@ -195,10 +211,15 @@ uint8_t rulesPass(void)
  *
  * How many of the six rooms have this bit set. One loop, one READ_BIT.
  */
-uint8_t countRoomsWith(uint8_t bit)
+uint8_t countRoomsWith(uint8_t bitmask)
 {
-    (void)bit;      /* delete this line */
-    return 0U;      /* TODO */
+    uint8_t count = 0;
+    for (uint8_t i = 0; i < ROOM_COUNT; i++) {
+        if (READ_BIT(house[i].status, bitmask)) {
+            count++;
+        }
+    }
+    return count;
 }
 
 
@@ -227,6 +248,8 @@ uint8_t countRoomsWith(uint8_t bit)
  */
 uint32_t sumAdc(const Room_t *rooms, uint8_t n)
 {
-    (void)rooms; (void)n;   /* delete this line */
-    return 0UL;             /* TODO */
+    if (n == 0) {
+        return 0UL;
+    }
+    return rooms[n - 1].adc + sumAdc(rooms, n - 1);
 }

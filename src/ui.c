@@ -25,11 +25,18 @@
  * Student: <YOUR NAME HERE>
  */
 #include <stdio.h>
-
 #include "ui.h"
 #include "house.h"
 #include "render.h"
 #include "platform.h"
+
+/* Format one status byte from the most-significant bit to the least-significant bit. */
+#define BIT_FMT "%u%u%u%u%u%u%u%u"
+#define BIT_VAL(value) \
+    ((unsigned)READ_BIT((value), 7U)), ((unsigned)READ_BIT((value), 6U)), \
+    ((unsigned)READ_BIT((value), 5U)), ((unsigned)READ_BIT((value), 4U)), \
+    ((unsigned)READ_BIT((value), 3U)), ((unsigned)READ_BIT((value), 2U)), \
+    ((unsigned)READ_BIT((value), 1U)), ((unsigned)READ_BIT((value), 0U))
 
 /* ============================================================================
  *                            GIVEN — read these
@@ -117,15 +124,15 @@ uint8_t pickRoom(void)
  * ========================================================================== */
 
 
-/* ==========================================================================
- *  [ 1 / 5 ]   YOUR WORK HERE  —  setOccupancy()                     FR-08
+/* ============================================================================
+ *  [ 1 / 5 ]   YOUR WORK HERE   setOccupancy()                     FR-08
  * --------------------------------------------------------------------------
  *  REQUIRES : house.c [ 1 / 6 ] houseInit(), so the rooms have names.
- *  GIVES    : menu 3 works — "people: yes/no" flips on the schematic.
+ *  GIVES    : menu 3 works  "people: yes/no" flips on the schematic.
  *  USES     : pickRoom(), houseRoom(), TOGGLE_BIT, BIT_OCCUPIED,
  *             READ_BIT, statusSet(), render(), pauseKey()
  *  CHECK    : menu 3, pick Kitchen, its people line flips. The LAMP must
- *             NOT move — only the sensor bit changed.
+ *             NOT move  only the sensor bit changed.
  * ==========================================================================
  *
  * Somebody walks in or out. The shortest function in the file — do it first
@@ -137,151 +144,143 @@ uint8_t pickRoom(void)
  *   4. render((int)i) then pauseKey()
  *
  * NOTE: this changes the SENSOR bit and nothing else. The lamp does not move
- * until the rules run. That distinction is the whole point of the project —
- * do not "helpfully" turn the lamp on in here.
  */
+
 void setOccupancy(void)
 {
-    printf("  TODO setOccupancy\n");
+    uint8_t idx = pickRoom();
+    if (idx == 255U) return;
+
+    TOGGLE_BIT(houseRoom(idx)->status, BIT_OCCUPIED);
+
+    if (READ_BIT(houseRoom(idx)->status, BIT_OCCUPIED)) {
+        statusSet(C_OK, "Person entered room");
+    } else {
+        statusSet(C_DIM, "Person left room");
+    }
+
+    render((int)idx);
+    pauseKey();
 }
 
-
-/* ==========================================================================
- *  [ 2 / 5 ]   YOUR WORK HERE  —  setTemperature()                   FR-09
- * --------------------------------------------------------------------------
- *  REQUIRES : house.c [ 1 / 6 ] houseInit() and [ 2 / 6 ] tempC().
- *  GIVES    : menu 4 works — you can heat a room up and watch its bar grow.
- *             This is how you will test your rules later.
- *  USES     : pickRoom(), readInt(), ADC_MAX, tempC(), statusSet(),
- *             render(), pauseKey()
- *  CHECK    : 1023 is accepted (499 C, bar full). 2000 and "abc" are both
- *             rejected AND the room's old temperature is unchanged.
- * ==========================================================================
- *
- * Write a new raw ADC count into one room.
- *
- *   1. i = pickRoom()
- *   2. ask "  Raw ADC reading (0..1023): " and read an int with readInt()
- *   3. reject anything outside 0..ADC_MAX with a statusSet() message and
- *      NO write to the model, then return
- *   4. otherwise store it and statusSet("%s: ADC %u -> %u C", ...)
- *   5. render((int)i), pauseKey()
- *
- * Read into an `int` and validate BEFORE casting to uint16_t. If you read
- * straight into a uint16_t you can never detect a negative number — it has
- * already wrapped to 65532 and sailed through your range check.
- */
 void setTemperature(void)
 {
-    printf("  TODO setTemperature\n");
+    uint8_t idx = pickRoom();
+    if (idx == 255U) return;
+
+    int val = -1;
+    printf(" Enter new ADC (0..1023) > ");
+    if (!readInt(&val) || val < 0 || val > 1023) {
+        statusSet(C_ALARM, "Invalid ADC value.");
+        return;
+    }
+
+    uint16_t old_adc = houseRoom(idx)->adc;
+    houseRoom(idx)->adc = (uint16_t)val;
+
+    char msg[128];
+    snprintf(msg, sizeof(msg), "%s: ADC %u -> %u (%u C)", houseRoom(idx)->name, old_adc, houseRoom(idx)->adc, tempC(houseRoom(idx)->adc));
+    statusSet(C_OK, msg);
+
+    render((int)idx);
+    pauseKey();
 }
 
-
-/* ==========================================================================
- *  [ 3 / 5 ]   YOUR WORK HERE  —  switchDevice()                     FR-07
- * --------------------------------------------------------------------------
- *  REQUIRES : house.c [ 1 / 6 ] houseInit().
- *  GIVES    : menu 2 works — lamps and fans flip by hand, and the room drops
- *             to MAN. Once your rules exist, MANUAL rooms get skipped.
- *  USES     : pickRoom(), readInt(), TOGGLE_BIT, CLR_BIT, READ_BIT,
- *             BIT_LAMP, BIT_FAN, BIT_AUTO, statusSet(), render(),
- *             printBinary(), pauseKey()
- *  CHECK    : flip the Living lamp — the card shows [#] and the tag turns to
- *             MAN. The printed status byte must be 0b00000101 (LAMP + people,
- *             AUTO gone).
- * ==========================================================================
- *
- * Switch a lamp, a fan, or auto-mode.
- *
- *   1. i = pickRoom(); if 255, return
- *   2. ask "  Switch (1=Lamp 2=Fan 3=Auto mode): " and read an int
- *   3. switch on the answer:
- *        1 -> TOGGLE_BIT the LAMP, then CLR_BIT the AUTO bit
- *        2 -> TOGGLE_BIT the FAN,  then CLR_BIT the AUTO bit
- *        3 -> TOGGLE_BIT the AUTO bit
- *        anything else -> statusSet "Nothing switched." and return
- *   4. statusSet() a message saying what happened
- *   5. render((int)i), then print "  <name> status = " + printBinary(status)
- *      + "  (0x%02X)", then pauseKey()
- *
- * WHY LAMP AND FAN CLEAR AUTO: a human just touched the switch by hand, so
- * the room drops out of automation until somebody hands control back. That
- * is exactly how a real thermostat behaves — manual override wins.
- */
 void switchDevice(void)
 {
-    printf("  TODO switchDevice\n");
+    uint8_t idx = pickRoom();
+    if (idx == 255U) return;
+
+    Room_t *r = houseRoom(idx);
+
+    printf("\n 1) Toggle Lamp\n 2) Toggle Fan\n 3) Toggle Auto\n Choice > ");
+    int choice = -1;
+    readInt(&choice);
+
+    if (choice == 1) {
+        TOGGLE_BIT(r->status, BIT_LAMP);
+        CLR_BIT(r->status, BIT_AUTO);
+        statusSet(C_OK, "Lamp toggled (AUTO disabled)");
+    } else if (choice == 2) {
+        TOGGLE_BIT(r->status, BIT_FAN);
+        CLR_BIT(r->status, BIT_AUTO);
+        statusSet(C_OK, "Fan toggled (AUTO disabled)");
+    } else if (choice == 3) {
+        TOGGLE_BIT(r->status, BIT_AUTO);
+        statusSet(C_OK, "Auto toggled");
+    } else {
+        statusSet(C_DIM, "Nothing switched.");
+    }
+
+    render((int)idx);
+    pauseKey();
 }
 
-
-/* ==========================================================================
- *  [ 4 / 5 ]   YOUR WORK HERE  —  houseReport()                      FR-11
- * --------------------------------------------------------------------------
- *  REQUIRES : house.c [ 5 / 6 ] countRoomsWith(), [ 6 / 6 ] sumAdc(),
- *             and [ 2 / 6 ] tempC().
- *  GIVES    : menu 6 works — the summary with its four bars.
- *  USES     : render(), countRoomsWith(), drawBar(), REPORT_BAR_W,
- *             sumAdc(), houseRooms(), tempC(), pauseKey()
- *  CHECK    : the counters must match what you can count on the schematic.
- *             With the seed house the raw sum is 363 and the average 29 C.
- * ==========================================================================
- *
- * The house report:
- *
- *   render(-1) first, so the schematic sits above your report
- *
- *   four counter lines, each  countRoomsWith(BIT_x)  followed by
- *       drawBar(count, ROOM_COUNT, REPORT_BAR_W, COLOUR)
- *     -> Lamps ON, Fans ON, Occupied, Alarms
- *
- *   hottest and coldest room BY NAME (one loop comparing .adc)
- *   average temperature: tempC(sumAdc(houseRooms(), ROOM_COUNT) / ROOM_COUNT)
- *
- *   then pauseKey()
- *
- * Use the SAME drawBar() that draws the temperature gauge in each room card.
- * One function, two scales. Four copy-pasted loops score less.
- */
 void houseReport(void)
 {
-    printf("  TODO houseReport\n");
+    uint8_t lamps = countRoomsWith(BIT_LAMP);
+    uint8_t fans = countRoomsWith(BIT_FAN);
+    uint8_t people = countRoomsWith(BIT_OCCUPIED);
+    uint8_t alarms = countRoomsWith(BIT_ALARM);
+
+    printf(" Lamps ON   : ");
+    drawBar(lamps, ROOM_COUNT, REPORT_BAR_W, C_LAMP);
+    printf(" Fans ON    : ");
+    drawBar(fans, ROOM_COUNT, REPORT_BAR_W, C_FAN);
+    printf(" Occupied   : ");
+    drawBar(people, ROOM_COUNT, REPORT_BAR_W, C_OK);
+    printf(" Alarms     : ");
+    drawBar(alarms, ROOM_COUNT, REPORT_BAR_W, C_ALARM);
+
+    uint8_t hottest_idx = 0;
+    uint8_t coldest_idx = 0;
+    for (uint8_t i = 1; i < ROOM_COUNT; i++) {
+        if (houseRoom(i)->adc > houseRoom(hottest_idx)->adc) {
+            hottest_idx = i;
+        }
+        if (houseRoom(i)->adc < houseRoom(coldest_idx)->adc) {
+            coldest_idx = i;
+        }
+    }
+
+    printf("\n Hottest room : %s (%u C)\n", houseRoom(hottest_idx)->name, tempC(houseRoom(hottest_idx)->adc));
+    printf(" Coldest room : %s (%u C)\n", houseRoom(coldest_idx)->name, tempC(houseRoom(coldest_idx)->adc));
+
+    uint32_t total_adc = sumAdc(houseRooms(), ROOM_COUNT);
+    uint16_t avg_temp = tempC((uint16_t)(total_adc / ROOM_COUNT));
+    printf(" Average temp : %u C\n\n", avg_temp);
+
+    pauseKey();
 }
 
-
-/* ==========================================================================
- *  [ 5 / 5 ]   YOUR WORK HERE  —  runAutomation()                    FR-10
- *              *** hardest one — leave it until last ***
- * --------------------------------------------------------------------------
- *  REQUIRES : house.c [ 3 / 6 ] applyRules() and [ 4 / 6 ] rulesPass().
- *             Nothing here works until the rules do.
- *  GIVES    : menu 5 works — the before -> after trace, the thing that proves
- *             your rules are right.
- *  USES     : houseRoom(), tempC(), READ_BIT, BIT_AUTO, applyRules(),
- *             snprintf(), render(), statusSet(), pauseKey()
- *  CHECK    : press 5 twice. You MUST see 5 changed, then 0 changed.
- * ==========================================================================
- *
- * Run the rules over the house and show what moved.
- *
- * The deciding is already done for you — call applyRules() from house.c.
- * What belongs HERE is only the reporting:
- *
- *   for each room i:
- *       remember the status byte BEFORE
- *       if the room is not AUTO -> note "<name>  <t> C   skipped (MANUAL)"
- *       else -> call applyRules(), add its return to a `changed` counter,
- *               and note "<name>  <t> C   0b<before> -> 0b<after>  *"
- *                (the * only when it actually changed)
- *   print every note, then "N room(s) changed.", then pauseKey()
- *
- * Build the notes into a `char trace[ROOM_COUNT][96];` with snprintf() so you
- * can print them all together at the end.
- *
- * SELF-CHECK — this is the one people fail. Run it twice. If a second pass
- * keeps reporting changes, a rule is fighting itself: go back to house.c
- * [ 3 / 6 ] and find the `if` that has no `else`.
- */
 void runAutomation(void)
 {
-    printf("  TODO runAutomation\n");
+    char trace[ROOM_COUNT][96];
+    uint8_t changed = 0;
+
+    for (uint8_t i = 0; i < ROOM_COUNT; i++) {
+        Room_t *r = houseRoom(i);
+        uint16_t t = tempC(r->adc);
+        if (!READ_BIT(r->status, BIT_AUTO)) {
+            snprintf(trace[i], sizeof(trace[i]), " %-10s %3u C  skipped (MANUAL)", r->name, t);
+        } else {
+            uint8_t before = r->status;
+            uint8_t ch = applyRules(r);
+            if (ch) {
+                changed++;
+                snprintf(trace[i], sizeof(trace[i]), " %-10s %3u C  0b" BIT_FMT " -> 0b" BIT_FMT " *",
+                         r->name, t, BIT_VAL(before), BIT_VAL(r->status));
+            } else {
+                snprintf(trace[i], sizeof(trace[i]), " %-10s %3u C  0b" BIT_FMT " -> 0b" BIT_FMT,
+                         r->name, t, BIT_VAL(before), BIT_VAL(r->status));
+            }
+        }
+    }
+
+    for (uint8_t i = 0; i < ROOM_COUNT; i++) {
+        puts(trace[i]);
+    }
+
+    printf("\n%u room(s) changed.\n", changed);
+    pauseKey();
 }
