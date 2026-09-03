@@ -26,7 +26,7 @@
  *   - Nothing in this file prints anything. Printing is render.c's job.
  *
  * Smart Home Console · Day 03 midterm — G9
- * Student: <YOUR NAME HERE>
+ * Student: <Abdul_Rhman Hisham Abdullah Al_Houssiney>
  */
 #include <string.h>
 
@@ -163,8 +163,8 @@ uint16_t tempC(uint16_t adc)
  */
 uint8_t applyRules(Room_t *r)
 {
-    (void)r;        /* delete this line */
-    return 0U;      /* TODO */
+    return 0U;      
+    (void)r;        
 }
 
 

@@ -22,7 +22,7 @@
  * is your validation template. Copy its shape.
  *
  * Smart Home Console · Day 03 midterm — G9
- * Student: <YOUR NAME HERE>
+ * Student: <Abdul_Rhman Hisham Abdullah Al_Houssiney>
  */
 #include <stdio.h>
 #include "ui.h"
